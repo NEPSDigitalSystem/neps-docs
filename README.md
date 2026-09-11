@@ -12,7 +12,7 @@ NEPS Digital: Documentation repository. Contains technical references, user guid
 | — | [documentation-plan.md](documentation-plan.md) | Documentation Lead | Template (original 7-doc plan) | — | Reference only |
 | 01 | [01-api-reference.md](01-api-reference.md) | Doc Lead | Draft skeleton | **3** | Backend Lead + ML Lead (Yasmine) |
 | 02 | [02-user-guide-admin.md](02-user-guide-admin.md) | Doc Lead | Draft skeleton | **5** | Portal Lead + Damien |
-| 03 | [03-user-guide-pi.md](03-user-guide-pi.md) | Doc Lead | Draft skeleton | **6** | Dr. Linda / AyineBia + Portal Lead |
+| 03 | [03-user-guide-pi.md](03-user-guide-pi.md) | Doc Lead | Draft skeleton | **6** | Dr. Linda Banning + Portal Lead |
 | 04 | [04-user-guide-enumerator.md](04-user-guide-enumerator.md) | Doc Lead | Draft skeleton | **4** | Field Coordinator + Portal Lead |
 | 05 | [05-user-guide-country-lead.md](05-user-guide-country-lead.md) | Doc Lead | Draft skeleton | **7** | Country Coordinators + Portal Lead |
 | 06 | [06-data-flow-and-architecture.md](06-data-flow-and-architecture.md) | **Damien** + Doc Lead | **Damien content in — ready for Backend Lead review** | **2** | Backend Lead (verify) |
