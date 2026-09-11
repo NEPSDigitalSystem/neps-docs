@@ -2,14 +2,14 @@
 
 **Document Status:** Draft — Pending Interviews
 **Owner:** Documentation Lead
-**Interview Required:** Dr. Linda / AyineBia + Portal Lead
+**Interview Required:** Dr. Linda Banning + Neps Portal (Frontend) Lead
 **Priority:** 6
 
 ---
 
 ## Information Gathering Checklist
 
-- [ ] Interview scheduled with Dr. Linda / AyineBia
+- [ ] Interview scheduled with Dr. Linda Banning
 - [ ] Interview scheduled with Portal Lead
 - [ ] Captured PI dashboard layout & components
 - [ ] Documented enrollment & attrition metrics
