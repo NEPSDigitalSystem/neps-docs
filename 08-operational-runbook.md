@@ -407,13 +407,44 @@ openssl rand -base64 32 > secrets/postgres_password
 # 3. Restart everything that connects: backend, data-platform, ml-ai, postgres-exporter, pgadmin
 ```
 
-### 10.4 Discord webhook URL rotation
+### 10.4 Discord webhook & Alertmanager test firing (PHI-Safe)
 ```bash
 echo "https://discord.com/api/webhooks/NEW/URL" > secrets/discord_webhook_url.txt
 # Staging equivalent:
 echo "https://discord.com/api/webhooks/NEW-STAGING/URL" > secrets/discord_webhook_url_staging.txt
 docker compose up -d --force-recreate alertmanager
-# Send test alert via Alertmanager API or wait for synthetic 10:00 UTC staging test
+
+# ── PHI-Safe Alertmanager Test Firing ─────────────────────────────────────
+# Send a synthetic test alert to Alertmanager (does NOT contain real participant data):
+curl -X POST http://localhost:9093/api/v2/alerts -H "Content-Type: application/json" -d '[
+  {
+    "labels": {
+      "alertname": "SyntheticTestAlert",
+      "severity": "critical",
+      "team": "safeguarding",
+      "service": "test-runner"
+    },
+    "annotations": {
+      "summary": "PHI-Safe Test Firing from Operational Runbook",
+      "description": "Synthetic alert to verify Discord and SMTP notification flow."
+    },
+    "generatorURL": "http://localhost:9090"
+  }
+]'
+
+# Verify receipt in Discord channel and test email inbox.
+# To clear the synthetic alert, post an alert with endsAt set:
+curl -X POST http://localhost:9093/api/v2/alerts -H "Content-Type: application/json" -d '[
+  {
+    "labels": {
+      "alertname": "SyntheticTestAlert",
+      "severity": "critical",
+      "team": "safeguarding",
+      "service": "test-runner"
+    },
+    "endsAt": "'$(date -u +"%Y-%m-%dT%H:%M:%SZ")'"
+  }
+]'
 ```
 
 ### 10.5 REDCap API token rotation
@@ -491,12 +522,13 @@ docker compose exec neps-backend python -m app.scripts.create_user \
 ## 13. Monitoring Dashboards Cheat Sheet
 
 ### Grafana — `http://host:3001` (prod) / 13001 (staging)
-Currently only one dashboard: `NEPS Overview` (JSON in `monitoring/grafana-dashboards/neps-overview.json`).
-HIGH gap per review — add dashboards for:
-- Backend per-route latency, error rate (Prometheus: `http_request_duration_seconds_*`)
-- PostgreSQL: slow queries, dead tuples, connection count
-- Safeguarding-specific: alerts-per-day, time-to-acknowledge, time-to-resolve
-- ETL: run duration, rows synced, data quality score
+Provisioned dashboards (in `monitoring/grafana/provisioning/dashboards/`):
+- `NEPS Overview` — Overall system health, container statuses, and high-level traffic
+- `NEPS Backend` — Per-route HTTP request rate, 5xx error ratio, and p95 latency
+- `NEPS Portal` — Frontend container status, Blackbox synthetic uptime, and probe duration
+- `PostgreSQL & Redis` — Database health, connection pool usage, Redis uptime, and memory usage
+- `NEPS Safeguarding & Clinical Crisis` — Clinical crisis reports, distress escalation rates (empty-state safe)
+- `NEPS ETL & REDCap Integration` — REDCap last sync age, sync error rates, and ETL job status
 
 ### Prometheus — `http://host:9090`
 Useful PromQL queries:
