@@ -19,6 +19,7 @@ NEPS Digital: Documentation repository. Contains technical references, user guid
 | 07 | [07-ethics-data-management-plan.md](07-ethics-data-management-plan.md) | **Damien + Dr. Linda** | **Damien content in — 40+ CONFIRM items for Dr. Linda** | **1** (IRB blocker) | Dr. Linda (30-min interview URGENT) |
 | 08 | [08-operational-runbook.md](08-operational-runbook.md) | **Damien** | **Damien content in — contacts PIR checklist items pending** | **8** | Damien (fill contacts) + KNUST IT |
 | 09 | [09-redcap-integration-guide.md](09-redcap-integration-guide.md) | Doc Lead | Draft skeleton | **9** | Backend Lead + Data Platform Lead |
+| — | [pipeline-testing-guide.md](pipeline-testing-guide.md) | Damien | Active — end-to-end pipeline verification | — | — |
 
 ---
 
