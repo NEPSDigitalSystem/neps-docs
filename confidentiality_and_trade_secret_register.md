@@ -35,6 +35,34 @@ The digital system comprises six core code repositories (`neps-backend`, `neps-p
 
 ## 2. Category-by-Category Register
 
+```mermaid
+graph LR
+    subgraph Core_Categories [NEPS IP & Confidentiality Spectrum]
+        ALG[Algorithms - ALG]
+        DAT[Datasets - DAT]
+        DD[Data Dictionaries - DD]
+        MW[Model Weights - MW]
+        UF[Unpublished Findings - UF]
+        IK[Implementation Know-How - IK]
+        GW[Governance Workflows - GW]
+    end
+
+    subgraph Protection_Level [Institutional Classification]
+        CRITICAL[CRITICAL: Trade Secrets & Live Keys]
+        HIGH[HIGH: Architecture & Schemas]
+        MEDIUM[MEDIUM: Mock Data & Metrics]
+        LOW[LOW: Public Tools]
+    end
+
+    ALG --> CRITICAL
+    DAT --> CRITICAL
+    MW --> CRITICAL
+    IK --> HIGH
+    DD --> HIGH
+    UF --> HIGH
+    GW --> HIGH
+```
+
 ### 2.1 Category 1: Algorithms (ALG)
 Logic, mathematical formulas, scoring criteria, sync orchestrations, and risk prediction models.
 
@@ -141,6 +169,35 @@ RBAC matrices, ethical protocols, crisis response escalations, and data manageme
 
 ## 3. Research & Pre-Implementation Assets Section
 
+```mermaid
+graph TD
+    subgraph Research_And_Specs [Pre-Implementation Research & Specs]
+        R1[24-Month Monitoring Parameters]
+        R2[REDCap Integration Specification]
+        R3[On-Premise Infrastructure Assessment]
+        R4[Adolescent NLP Psychometric Mapping]
+    end
+
+    subgraph Architectural_Decisions [Key Architectural Decisions]
+        D1[On-Premise KNUST Hosting - Data Sovereignty]
+        D2[Intermediary REDCap Proxy Layer]
+        D3[Multi-Tier Isolated Docker Networks]
+        D4[Sub-Second Point-in-Time Recovery]
+    end
+
+    subgraph Implementation_Status [Implementation Status]
+        S1[Code Implemented in neps-infrastructure]
+        S2[Code Implemented in neps-data-platform / backend]
+        S3[Pending Real Hardware Deployment]
+        S4[Pending neps-ml-ai Ingestion]
+    end
+
+    R1 --> D4 --> S1
+    R2 --> D2 --> S2
+    R3 --> D1 --> S3
+    R4 --> D3 --> S4
+```
+
 ### 3.1 Document Catalogue
 
 #### 1. NEPS 24-Month Digital System Monitoring Parameters (`.pdf`)
@@ -191,6 +248,28 @@ The following table catalogues items that have been formally designed, researche
 ---
 
 ## 5. Risk & Compliance Notes
+
+```mermaid
+graph LR
+    subgraph Compliance_Risks [Compliance & Security Risks]
+        CR1[Hardcoded Secret Placeholders in Repo]
+        CR2[Self-Signed TLS Certificates]
+        CR3[Cross-Border Health Data Sovereignty]
+        CR4[NextAuth Unverified Secret Key]
+    end
+
+    subgraph Remediation_Path [Mandatory Remediations]
+        RM1[Enforce setup-secrets.sh on Bare Metal]
+        RM2[Provision Let's Encrypt / Institutional Cert]
+        RM3[Execute Data Transfer Agreements DTAs]
+        RM4[Set High-Entropy AUTH_SECRET in CI/CD]
+    end
+
+    CR1 --> RM1
+    CR2 --> RM2
+    CR3 --> RM3
+    CR4 --> RM4
+```
 
 ### 5.1 Secrets Management & Credential Hardening
 - **Observation:** Development `.env` files and CI stubs reference placeholder credentials (`postgres_password.txt`, `app_secret_key.txt`, `discord_webhook_url.txt`).
