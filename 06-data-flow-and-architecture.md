@@ -1,6 +1,6 @@
 # 06 — Data Flow & System Architecture
 
-**Document Status:** Draft — Ready for Backend Lead Review
+**Document Status:** Draft — Current V3.1 Track A boundary recorded; production authorization pending
 **Owner:** Damien + Documentation Lead
 **Interview Required:** Backend Lead (to verify and fill gaps)
 **Priority:** 2 (Foundational — every other doc references this)
@@ -9,7 +9,19 @@
 
 ## 1. Overview
 
-The NEPS Digital System is a microservices-based research platform for the NEPS longitudinal study across Ghana, Sierra Leone, and Tanzania. It supports participant enrollment, monthly data collection, ML-driven distress screening, safeguarding alerts, and multi-role dashboards for admin/PI/country-lead/enumerator users.
+The NEPS Digital System is a research data platform for the NEPS baseline study across Ghana, Sierra Leone, and Tanzania. The current handover supports independent REDCap source receipt and reviewable V3.1 validation/scoring development. Track A dashboards may be built against synthetic fixtures and guarded development APIs, but live research access remains denied until trusted identity and approved purpose/consent/country adapters are implemented and verified. The handover does not authorize portal data entry, longitudinal workflows, clinical thresholds, automated safeguarding alerts, or production deployment.
+
+> **Current ML boundary:** the backend is the only application service that reads
+> research data from PostgreSQL. ML/AI is a private, stateless inference service
+> with no database credentials, warehouse network, participant-data API, host
+> port, or Nginx route. See
+> `neps-infrastructure/docs/ML_AI_SECURITY_ARCHITECTURE.md`. Older diagrams and
+> operational drafts in this document that describe ML-to-PostgreSQL reads,
+> clinical risk predictions, or Discord safeguarding alerts are superseded.
+> The image's control flow is otherwise a useful model: authenticate and scope
+> at the backend, write intent audit before access, call ML privately only with
+> minimized authorized input, then audit completion and filter the response.
+> ML must never retrieve records from PostgreSQL.
 
 **Source Diagrams (original):** See `NEPSDigSystem-main/Info Files/`:
 - `NEPS Digital - information flow diagram.png`
@@ -28,7 +40,8 @@ graph TB
         E[Enumerator<br/>(field worker)]
         CL[Country Lead]
         PI[Principal Investigator]
-        A[Admin / Damien]
+        W[Welfare responder<br/>(restricted workflow)]
+        A[Admin<br/>(technical access not participant access)]
     end
 
     subgraph Edge[Edge / Public Tier]
@@ -36,16 +49,16 @@ graph TB
     end
 
     subgraph Frontend[Presentation Layer]
-        P[neps-portal<br/>Next.js 15 · NextAuth<br/>4 role dashboards]
+        P[neps-portal<br/>Next.js 15 · NextAuth<br/>dashboard UI scaffolding]
     end
 
     subgraph Backend[Application Layer]
         B[neps-backend<br/>FastAPI · SQLAlchemy async<br/>Portal + Analytics + Sync routers]
-        M[neps-ml-ai<br/>FastAPI · scikit-learn<br/>Sentiment · Emotion · Risk TBD]
+        M[neps-ml-ai<br/>Private stateless inference<br/>disabled pending governance]
     end
 
     subgraph Data[Data / Integration Layer]
-        DP[neps-data-platform<br/>ETL extract→transform→load<br/>Ofelia nightly 01:00]
+        DP[neps-data-platform<br/>Independent source intake + reviewed processing]
         R[(REDCap<br/>Forms / Surveys<br/>Source of Truth)]
     end
 
@@ -58,7 +71,7 @@ graph TB
     subgraph Observability[Monitoring / Observability]
         PR[Prometheus<br/>Metrics · Alert rules]
         GF[Grafana<br/>Dashboards · Logs]
-        AM[Alertmanager<br/>Discord routing]
+        AM[Alertmanager<br/>technical operations only]
         LK[Loki + Promtail<br/>Log aggregation]
         OF[Ofelia<br/>Cron: ETL + PITR backup]
     end
@@ -68,12 +81,12 @@ graph TB
     end
 
     %% User → Edge → Frontend
-    E & CL & PI & A -->|HTTPS :443| N
+    E & CL & PI & W & A -->|HTTPS :443| N
     N -->|/ route| P
 
     %% Frontend → Backend
     P -->|/api/* typed apiClient| B
-    B -->|ML calls TBD| M
+    B -->|Private service token + request ID<br/>only when explicitly enabled| M
 
     %% Data layer
     R <-->|REDCap API| DP
@@ -81,7 +94,6 @@ graph TB
     B <-->|Read · Write| PG
     B <-->|Cache| RD
     B -->|REDCap proxy| R
-    M -->|Predictions → TBD| PG
 
     %% Backup
     PG -->|WAL + Base backup| MO
@@ -92,7 +104,7 @@ graph TB
     P & B & M & DP & PG & RD -.->|/metrics scraping| PR
     P & B & M & DP & PG -.->|Logs| LK
     PR -->|Alert rules| AM
-    AM -->|Safeguarding + infra| DISCORD[/Discord webhook/]
+    AM -->|Configured technical alerts only| OPS[/Operations alert sink/]
     PR & LK --> GF
 
     %% Docs reference all
@@ -103,16 +115,16 @@ graph TB
 |---|------------|-----------|---------|
 | 1 | `neps-infrastructure` | Docker Compose, Nginx, Prometheus, Grafana, Alertmanager, Ofelia | Orchestrates all services, networking, monitoring, backups, scheduling |
 | 2 | `neps-backend` | FastAPI (Python 3.11), SQLAlchemy async, PostgreSQL, Redis, APScheduler | Core API — Portal endpoints, Analytics endpoints, REDCap sync, auth scaffolding |
-| 3 | `neps-portal` | Next.js 15, TypeScript, TailwindCSS, NextAuth.js, Recharts | Web frontend — 4 role-based dashboards |
+| 3 | `neps-portal` | Next.js 15, TypeScript, TailwindCSS, NextAuth.js, Recharts | Dashboard UI scaffolding; frontend role visibility is not authorization |
 | 4 | `neps-data-platform` | Python ETL, Alembic, structlog, pandas, SQLAlchemy | REDCap → PostgreSQL ETL pipeline (extract, transform, normalize, load) |
-| 5 | `neps-ml-ai` | FastAPI, scikit-learn, NLTK/spaCy, PKL serialised models | NLP service — sentiment, emotion, risk prediction (endpoints TBD) |
+| 5 | `neps-ml-ai` | FastAPI, scikit-learn, NLTK/spaCy, PKL serialised models | Private stateless NLP inference; no warehouse access; inference disabled pending governance approval |
 | 6 | `neps-docs` | Markdown | Documentation repository (this repo) |
 
 ---
 
 ## 3. Infrastructure Stack (Docker Compose Services)
 
-All services are defined in `neps-infrastructure/docker-compose.yml` with overlays for prod/staging/discord-alerts.
+Services are defined in `neps-infrastructure/docker-compose.yml` with development and staging overlays. The existence of deployment overlays is not production authorization.
 
 ### 3.1 Networking — 4-Tier Isolation
 
@@ -162,12 +174,12 @@ graph LR
     N -->|proxy_pass| GF
     N -->|proxy_pass| PgA
 
-    %% Internal service -> Database (explicit allow-list)
+    %% Only approved data services may access PostgreSQL
     NB -->|TCP 5432| PG
     NDP -->|TCP 5432| PG
-    NML -->|TCP 5432| PG
     PgA -->|TCP 5432| PG
     PE -->|metrics scrape| PG
+    NB -->|Private inference request; no DB access| NML
 
     %% Internal service -> Redis
     NB --> R
@@ -182,7 +194,7 @@ graph LR
     PR --> AM
     PT -->|ship container logs| LK
     PR & LK --> GF
-    AM -->|webhook| DIS[/Discord/]
+    AM -->|technical operations only| OPS[/Configured operations sink/]
 
     %% Observability shares connection with internal
     INTERNAL <-->|prometheus scrape| MONITORING
@@ -190,32 +202,39 @@ graph LR
 
 | Network | Scope | Services Connected |
 |---------|-------|-------------------|
-| `neps-public` | Public ingress (ports 80/443) | nginx only |
+| `neps-public` | Edge-facing network | nginx and only the explicitly configured edge-facing services |
 | `neps-internal` | Service-to-service (internal only) | neps-backend, neps-portal, neps-ml-ai, neps-data-platform, redis, ofelia, blackbox-exporter, prometheus, alertmanager, grafana, loki, promtail, pgadmin, minio |
-| `neps-database` | Fully isolated DB tier | postgres + postgres-exporter only |
+| `neps-database` | Isolated database tier | backend, data platform, postgres, postgres-exporter, and approved administration services; ML/AI is excluded |
 | `neps-monitoring` | Metrics/logging aggregation | prometheus, grafana, alertmanager, loki, exporters |
 
-Only Nginx exposes ports to the host; everything else communicates via internal Docker DNS.
+Only explicitly configured ingress should be public. Published development,
+administration, and monitoring ports require host/network restrictions;
+container-network membership alone is not production authorization.
 
 ### 3.2 Service Inventory
 
+The host-port columns below describe the protected production/staging Compose
+overlays, not local development. In those overlays only Nginx is published;
+operations and administration services require an explicitly approved private
+operator access path.
+
 | Service | Image/Base | Port (internal) | Port (host prod) | Port (host staging) | Purpose |
 |---------|-----------|-----------------|------------------|---------------------|---------|
-| `postgres` | postgres:15-alpine | 5432 | (not exposed) | 15432 (PgAdmin only) | Primary DB (neps_core schema) |
+| `postgres` | postgres:15-alpine | 5432 | — | — | Primary DB (neps_core schema) |
 | `redis` | redis:7-alpine | 6379 | — | — | Session/cache/circuit-breaker state |
 | `neps-backend` | python:3.11-alpine | 8000 | — | — | FastAPI application |
 | `neps-portal` | node:22-slim | 3000 | — | — | Next.js frontend |
-| `neps-ml-ai` | python:3.11-slim | 8000 | — | — | ML prediction service (TBD endpoints) |
+| `neps-ml-ai` | python:3.11-slim | 8000 | — | — | Private, stateless NLP inference; service-token protected; no warehouse access |
 | `neps-data-platform` | python:3.11-slim | (no HTTP) | — | — | ETL container (Ofelia exec's into it) |
 | `nginx` | nginx:1.27-alpine | 80/443 | 80/443 | 18080/18443 | Reverse proxy + TLS termination |
-| `prometheus` | prom/prometheus | 9090 | (restricted) | 19090 | Metrics scraping + alert evaluation |
-| `grafana` | grafana/grafana | 3000 | 3001 | 13001 | Dashboards + log viewer |
-| `alertmanager` | prom/alertmanager | 9093 | (restricted) | 19093 | Alert routing (Discord webhook) |
+| `prometheus` | prom/prometheus | 9090 | — | — | Metrics scraping + alert evaluation |
+| `grafana` | grafana/grafana | 3000 | — | — | Internal dashboards + log viewer |
+| `alertmanager` | prom/alertmanager | 9093 | — | — | Technical operations alert routing only |
 | `loki` | grafana/loki | 3100 | — | — | Log aggregation |
 | `promtail` | grafana/promtail | — | — | — | Container log shipper → Loki |
 | `ofelia` | mcuadros/ofelia | — | — | — | Cron scheduler (ETL sync 01:00, PITR backup 02:00) |
-| `pgadmin` | dpage/pgadmin4 | 80 | 5050 | 15050 | DB admin UI |
-| `minio` | minio/minio | 9000/9001 | (restricted) | — | S3-compatible object storage (backup target) |
+| `pgadmin` | dpage/pgadmin4 | 80 | — | — | Internal DB admin UI |
+| `minio` | minio/minio | 9000/9001 | — | — | S3-compatible object storage (backup target) |
 | `postgres-exporter` | prometheuscommunity/postgres-exporter | 9187 | — | — | Postgres metrics → Prometheus |
 | `blackbox-exporter` | prom/blackbox-exporter | 9115 | — | — | Uptime probing from user perspective |
 
@@ -236,104 +255,88 @@ All services run with:
 ```mermaid
 sequenceDiagram
     autonumber
-    participant E as Enumerator /<br/>Field Worker
-    participant R as REDCap<br/>(Source of Truth)
-    participant DP as neps-data-platform<br/>(ETL Ofelia 01:00 UTC)
-    participant PG as PostgreSQL 15<br/>(neps_core schema)
-    participant B as neps-backend<br/>(FastAPI)
-    participant ML as neps-ml-ai<br/>(NLP service)
-    participant N as Nginx<br/>(TLS edge)
-    participant P as neps-portal<br/>(role dashboards)
-    participant U as End Users<br/>(Admin/PI/Country Lead)
+    participant U as Authorized User
+    participant N as Nginx
+    participant P as Portal
+    participant B as Backend / policy enforcement
+    participant A as PostgreSQL audit log
+    participant PG as PostgreSQL V3.1 warehouse
+    participant ML as Private ML/AI
+    participant DP as Data Platform
+    participant R as REDCap
 
-    %% Data source entry in REDCap (either field workers directly OR through forms)
-    E->>+R: Submit forms (monthly self-report, screenings
-    Note over E,R: Direct REDCap data entry (field) OR Mock REDCap dev
-
-    %% Nightly ETL batch sync
-    Note over DP: Cron 01:00 — Ofelia docker exec
-    DP->>+R: Extract records (REDCap API)
-    R-->>-DP: participants + surveys + metadata
-    DP->>DP: Transform / Normalize → Yasmine v3 schema
-    DP->>+PG: Load / Upsert (participant, survey_response,<br/>distress_screening, consent_record, wp6_session
-    PG-->>-DP: rows upserted
-
-    %% Backend also has its own hourly participant sync
-    Note over B: APScheduler every 60 min
-    B->>+R: Sync participants (hourly)
-    R-->>-B: updated participant rows
-    B->>+PG: Upsert participant table (surveys NOT YET)
-    PG-->>-B: ok
-
-    %% ML flow (TBD — not yet wired)
-    Note over B,ML: ⚠️ NOT YET IMPLEMENTED
-    B->>+ML: /api/v1/predict/sentiment (per survey response
-    ML-->>-B: sentiment score, emotion labels
-    B->>+ML: /api/v1/predict/risk (distress screening)
-    ML-->>-B: risk score, suicidality flag
-    B->>+PG: Write ML predictions to distress_screening.ml_*
-
-    %% Portal reads
-    P->>+B: GET /api/portal/stats, /alerts, /trends (3/9 cards live)
-    B->>+PG: SELECT queries
-    PG-->>-B: result set
-    B-->>-P: JSON response (graceful fallback to dummyData on error)
-
-    %% Users view dashboards
-    U->>+N: HTTPS :443 /dashboard/<role>
-    N->>+P: proxy_pass
-    P-->>-N: rendered page
-    N-->>-U: dashboard (Admin✅/ PI🚧 / Country🚧 / Enumerator🚧)
-
-    %% Safeguarding path (TBD UI)
-    Note over PG,U: Distress score > THRESHOLD → Prometheus SafeguardingCrisisAlert → Alertmanager → Discord safeguarding channel → Admin acknowledge → Welfare responder assigned
+    U->>N: HTTPS dashboard request
+    N->>P: Portal route
+    P->>B: API request with authenticated session/JWT
+    B->>B: Validate identity, role, explicit country scope and allowed purpose
+    B->>A: Persist request intent and generated request ID
+    B->>PG: Bound, country-scoped V3.1 query
+    PG-->>B: Authorized result
+    opt Approved non-clinical inference only
+        B->>ML: Minimized payload + separate service token + actor/request IDs
+        ML-->>B: Model output (not a clinical decision)
+    end
+    B->>A: Persist completion/failure and record counts
+    B-->>P: Filtered result + X-Request-ID
+    P-->>N: Dashboard response
+    N-->>U: HTTPS response
+    R-->>DP: REDCap API source records
+    DP->>PG: Validated V3.1 intake and authoritative scores
 ```
 
-### 4.1 Step-by-Step Data Journey
+### 4.1 Handover-Bounded Data Journey
 
-**Step 1 — Data Enters REDCap**
-- Enumerators/field teams collect data via REDCap forms directly, OR
-- Mock REDCap service (`neps-data-platform/etl/extract/mock_client.py` / `neps-backend/app/services/redcap_mock.py`) provides realistic synthetic data (150+ participants, 24 months, 3 countries) for dev/test
+**Step 1 — Independent Source Receipt**
+- REDCap remains the source system. The Data Platform collector receives source
+  records independently of NDS registration, NDS-issued IDs, NDS consent, or
+  availability of the portal/backend.
+- Verify the actual REDCap project, endpoint, field/event configuration,
+  country/residency restrictions, token rights, and metadata before enabling
+  live collection. Mock REDCap and generated CSVs are synthetic development
+  fixtures only.
 
-**Step 2 — ETL Sync (Nightly 01:00 UTC)**
-- Ofelia scheduler runs: `docker exec neps-data-platform python -m etl.main sync --full`
-- `SyncOrchestrator` in `etl/sync/orchestrator.py` executes:
-  1. **Extract** — pulls records from REDCap (production_client.py or mock_client.py) via `REDCAP_API_URL` + token secret
-  2. **Transform** — `normalizer.py` + `parser.py` map REDCap field names → normalized schema (Yasmine v3 expanded fields included: employment_status, food_security, socioeconomic, ML score columns)
-  3. **Load** — `upsert.py` writes to PostgreSQL `neps_core` schema via `load/db.py`, using Alembic migrations for schema versioning
-- Backend also has its own APScheduler hourly sync (`/api/v1/sync/` in `redcap_sync.py`) for participants — currently only participants sync (surveys TBD)
+**Step 2 — Versioned Review and Processing**
+- Preserve received source data and metadata/version evidence. New or changed
+  metadata must remain pending review; do not silently reinterpret historical
+  values.
+- The supplied V3.1 baseline is a 223-field dictionary, 188 respondent
+  questions, and a 73-item scoring core. The scoring implementation is
+  provisional; the Data Platform is the sole score producer. V3.2 metadata
+  review is separate and does not silently change V3.1 scoring.
+- NDS registration, source-to-NDS ID linkage, purpose-specific consent, and
+  downstream analytical processing are distinct activities. Do not manufacture
+  identity, linkage, consent, or eligibility.
 
-**Step 3 — Data Lives in PostgreSQL `neps_core` Schema**
+**Step 3 — Backend Research Access (Currently Gated)**
+- Before any live read, the backend must validate trusted human identity,
+  canonical role, explicit country/site scope, approved purpose/consent, and
+  field-level access policy. Unknown roles or missing scope fail closed.
+- Persist an audit intent before returning data; record completion/failure and
+  counts afterward. Do not include credentials, raw survey text, or full
+  response payloads in logs.
+- Current IAM/JWT and country checks are implementation scaffolding, not the
+  verified identity/purpose adapters required for production. Research routes
+  remain unavailable until those gates are complete.
 
-Tables (from `neps-backend/alembic/versions/a5102354f2c3_initial_schema.py` + v3 expansions):
-| Table | Purpose |
-|-------|---------|
-| `participant` | Core participant record (UUID PK, demographics, site/country, study arm) |
-| `consent_record` | Informed consent tracking (date, version, witness, withdrawal flag) |
-| `survey_response` | Monthly self-report / intake forms (JSONB for flexible fields) |
-| `distress_screening` | PHQ-9 / GAD-7 / suicidality screening results + ML risk scores |
-| `referral` | Safeguarding referral tracking (responder assignment, outcomes) |
-| `wp6_session` | WP6 intervention session attendance & outcomes |
-| *(v3 adds)* | `employment_status`, `food_security`, socioeconomic fields, ML prediction score columns |
+**Step 4 — Portal**
+- The portal requests data only from backend endpoints. Role labels, hidden
+  controls, country selectors, and synthetic dashboard views are not security
+  controls. The backend independently enforces every request.
 
-**Step 4 — Backend API Serves the Data**
-- FastAPI app in `neps-backend/main.py` wires 5 routers:
-  - `/health` — service health checks
-  - `/api/portal/*` — 20+ endpoints for dashboard cards (stats, participants, alerts, trends, WP6, referrals, country/site breakdowns)
-  - `/api/v1/analytics/*` — cohort overview, distress trends, WP6 outcomes, survey completion, retention, multi-axis disaggregation
-  - `/api/v1/sync/*` — REDCap sync trigger, status, manual run
-  - `/redcap` / `/api/v1/redcap/*` — REDCap proxy + mock endpoints
-
-**Step 5 — Portal Consumes Backend via `apiClient`**
-- `neps-portal/app/lib/api.ts` — typed API client matching backend response schemas
-- 3 admin dashboard cards currently live: `getPortalStats()`, `getDistressTrends()`, `getDistressAlerts()` with graceful fallback to `dummyData.tsx`
-- Remaining 6 admin cards + 3 role dashboards use placeholder data (see readiness review "Partial Dev")
-
-**Step 6 — ML Layer (Not Yet Wired)**
-- `neps-ml-ai/models/` has trained PKL files: sentiment 5-tier classifier + vectorizer + pipeline; emotion multi-label model + vectorizer + pipeline
-- FastAPI in `neps-ml-ai/main.py` currently exposes only `/` and `/health` — **zero prediction endpoints implemented**
-- `neps-backend/app/api/v1/risk_models.py` is **0 bytes**
-- Flow will be: backend `risk_models.py` calls neps-ml-ai `/api/v1/predict/*` → stores predictions in `distress_screening.ml_*` columns → distress alerts fire via Prometheus rules → Alertmanager → Discord safeguarding channel
+**Step 5 — ML Layer (Private, Not Approved for Participant Inference)**
+- The backend is the only application service that reads V3.1 warehouse data.
+- The ML/AI service has no PostgreSQL credentials, database network, direct
+  dataset/contract endpoints, host-published port, or Nginx route.
+- Current internal NLP endpoints require a separate service token. The backend
+  authenticates the human, audits intent/completion, passes actor and request
+  IDs, and does not forward the user's JWT.
+- `ML_AI_ENABLED` defaults to false and is required to remain false in protected
+  environments until owners approve the purpose, consent, model, input/output,
+  and escalation policies.
+- V3.1 scores are produced only by the Data Platform. Clinical thresholds,
+  suicide/distress predictions, automated referrals, and Discord safeguarding
+  notifications are not approved by the baseline handover and must not be
+  inferred or enabled here.
 
 ---
 
@@ -367,13 +370,11 @@ flowchart LR
     subgraph Alerting[Alert Pipeline]
         AR[Alert Rules<br/>neps-alerts.yml]
         AM[Alertmanager]
-        DISC{Discord Channels}
-        PRODCH[#safeguarding-alerts<br/>prod]
-        STGCH[#staging-alerts<br/>staging test]
+        OPS[Configured technical operations destinations]
     end
 
     subgraph Viz[Visualization]
-        GF[Grafana<br/>port 3001 / staging 13001]
+        GF[Grafana<br/>internal only; no protected-overlay host port]
         D1[Dashboard:<br/>neps-overview.json]
     end
 
@@ -397,14 +398,8 @@ flowchart LR
     PR -->|evaluate| AR
     AR -->|firing alerts| AM
 
-    %% Alert routing (by compose project name)
-    AM -->|Prod| DISC
-    DISC --> PRODCH
-    AM -->|Staging| DISC
-    DISC --> STGCH
-
-    %% Note: HIGH gap per review — only Discord route, no Slack/email/SMS fallback
-    Note over AM,PRODCH: ⚠ HIGH — Add Slack/email/SMS fallback<br/>before production
+    %% Only technical operations notifications are in scope
+    AM --> OPS
 
     %% Grafana datasources
     PR -->|metrics query| GF
@@ -426,27 +421,43 @@ flowchart LR
 | PostgreSQLDown | Critical | postgres-exporter down |
 | PostgreSQLOverloaded | Warning | Connections >80% max for 10m |
 | DiskAlmostFull / MemoryAlmostFull / CPUAlmostFull | Warning | >85% for 5m |
-| SafeguardingCrisisAlert | **P0 Critical** | Distress score above suicidality threshold detected |
+| Safeguarding / clinical alert | Not authorized | No handover-approved clinical cutoff, decision policy, or notification workflow; do not route participant data to chat or alert channels |
 | REDCapSyncStaleness | Warning | Last sync >25h ago |
 | ETLJobFailure | Warning | ETL container non-zero exit on last run |
 | DataQualityScoreLow | Warning | ETL data quality metric below threshold *(not yet published)* |
 
 ---
 
-## 6. Authentication & RBAC (Current State)
+## 6. Authentication, Authorization & Audit (Current State)
 
-**Status: NOT END-TO-END IMPLEMENTED** (Cross-cutting CRITICAL)
+The NDS handover is the authority for the release boundary. Current backend IAM
+and signed-token checks are implementation scaffolding, not proof that trusted
+identity, purpose consent, participant linkage, and country adapters are
+production-ready. The handover explicitly says not to treat fail-closed
+containment as completed production authentication and does not authorize
+production deployment.
 
-| Layer | What Exists | What's Missing |
-|-------|------------|----------------|
-| Portal (NextAuth.js) | `auth.ts` has JWT session, role injection, role-based routing; but **3 hardcoded in-memory users** (enumerator/country-lead/admin) with `password123` | No PI role mock; no real backend auth call; all creds are fake |
-| Backend (JWT) | `app/core/security.py` defines `create_access_token`, `get_current_user` with OAuth2PasswordBearer scheme; JWT signing via secret | **No User DB model**, **no `/api/auth/login` endpoint**, **zero routes use `Depends(get_current_user)`** — entire API is public |
+| Layer | Current control | Remaining gate |
+|-------|-----------------|----------------|
+| Portal | Server-side session; backend JWT is not exposed to browser code | Verify real identity-provider integration; development mock accounts are UI-only |
+| Backend | Research routes deny by default; development access requires explicit opt-in | Implement/verify trusted identity, consent/purpose, country/site policy, and individual-data policy before live access |
+| V3.1 reads/exports | Intent and completion audit records; audit write failure blocks response | Audit table is not tamper-proof; add independently controlled append-only storage before production |
+| Backend to ML/AI | Private Docker network, distinct service token, actor ID and request ID; human JWT not forwarded | `ML_AI_ENABLED` remains false pending governance approval |
+| ML/AI | No direct database access; rejects requests without backend service credential | Participant-level inputs, clinical inference, thresholds, and alerting are not approved |
 
-**Target state (from documentation plan):**
-- `/api/auth/login` validates creds → returns JWT access token
-- User DB model with RBAC roles: `admin | pi | enumerator | country_lead`
-- All non-public routes guarded by `Depends(get_current_user)` + role-check dependency
-- Portal NextAuth calls real `/api/auth/login` instead of in-memory list
+Backend endpoints are the only authorization boundary. `RESEARCH_ACCESS_ENABLED`
+defaults to false and protected environments reject enabling it until the
+required adapters are approved. Portal visibility, Nginx path obscurity,
+country selectors, and ML service headers do not authorize data access.
+
+The PostgreSQL audit table supports durable intent/completion records and
+fail-closed responses on required audit-write failure, but it is not immutable
+or tamper-proof. Independent append-only storage, restricted audit roles,
+retention, and integrity monitoring remain production release gates.
+
+Nginx access logs record request method/status without request paths or query
+strings. Application logs must not contain credentials, raw survey text, or
+full response payloads.
 
 ---
 
@@ -504,9 +515,9 @@ GitHub Actions (each repo has ci-cd.yml)
 |---------------------|-----------|---------|
 | `COMPOSE_PROJECT_NAME` | *(none / default)* | `neps-staging` |
 | Nginx HTTP/HTTPS | `:80 / :443` | `:18080 / :18443` |
-| All other services | standard ports | +10,000 offset (e.g. backend 18000, Grafana 13001, Prom 19090, PgAdmin 15050, Postgres 15432) |
+| All other services | Not host-published | Not host-published |
 | Data volumes | `postgres-data` etc. | `postgres-data-staging`, `wal-archive-staging`, etc. |
-| Alert routing | Discord safeguarding channel | `#staging-alerts` test channel + daily 10:00 UTC synthetic smoke test |
+| Alert routing | Technical operations only | Technical test alerts only; no participant or safeguarding content |
 | Ofelia container lookups | standard names | namespaced names (`neps-staging-neps-data-platform-1`) |
 | HTTP response headers | *(standard)* | `X-NEPS-Environment: staging`, `X-Robots-Tag: noindex` |
 
