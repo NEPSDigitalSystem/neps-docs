@@ -30,7 +30,14 @@ The NEPS Digital System is a research data platform for the NEPS baseline study 
 
 ---
 
-## 2. Repositories & Component Map
+## 2. Overall NEPS Digital System Architecture
+
+This section is the authoritative high-level view of the whole system: the NEPS
+repositories, the tiers they occupy, how a request travels from a user's browser
+through the backend to data and back, and the trust boundaries that must not be
+crossed. Detailed request/response flows follow in
+[§4](#4-end-to-end-data-flow-redcap--user); per-service detail lives in the
+`README.md` of each repository.
 
 ### 2.1 High-Level Component Diagram
 
@@ -49,7 +56,7 @@ graph TB
     end
 
     subgraph Frontend[Presentation Layer]
-        P[neps-portal<br/>Next.js 15 · NextAuth<br/>dashboard UI scaffolding]
+        P[neps-portal<br/>Next.js 16 · NextAuth v5<br/>BFF proxy /api/backend/*]
     end
 
     subgraph Backend[Application Layer]
@@ -77,7 +84,7 @@ graph TB
     end
 
     subgraph Docs[Documentation]
-        D[neps-docs<br/>This repo · 9 documents]
+        D[neps-docs<br/>This repo · 9 numbered documents]
     end
 
     %% User → Edge → Frontend
@@ -85,7 +92,7 @@ graph TB
     N -->|/ route| P
 
     %% Frontend → Backend
-    P -->|/api/* typed apiClient| B
+    P -->|BFF proxy /api/backend/*<br/>session token attached server-side| B
     B -->|Private service token + request ID<br/>only when explicitly enabled| M
 
     %% Data layer
@@ -111,14 +118,36 @@ graph TB
     D -. reference .-> Users & Edge & Frontend & Backend & Data & Persistence & Observability
 ```
 
+> **Edge routing caveat (verify before deploy).** Nginx routes `location /api/`
+> directly to `neps-backend`, while the portal's BFF proxy is served by
+> `neps-portal` under `/api/backend/...`. Because `/api/backend/...` also matches
+> the `/api/` prefix, the BFF route can be **shadowed by Nginx** in the composed
+> stack — browser calls to `/api/backend/...` would reach the backend unproxied
+> instead of the portal's token-injecting handler. Resolve with a more specific
+> `location /api/backend/` → portal (or a distinct browser-only prefix). Local
+> `npm run dev` (no Nginx) is unaffected. See `neps-portal/README.md §11`.
+
+### 2.2 Repository & Tier Responsibilities
+
 | # | Repository | Technology | Purpose |
 |---|------------|-----------|---------|
 | 1 | `neps-infrastructure` | Docker Compose, Nginx, Prometheus, Grafana, Alertmanager, Ofelia | Orchestrates all services, networking, monitoring, backups, scheduling |
 | 2 | `neps-backend` | FastAPI (Python 3.11), SQLAlchemy async, PostgreSQL, Redis, APScheduler | Core API — Portal endpoints, Analytics endpoints, REDCap sync, auth scaffolding |
-| 3 | `neps-portal` | Next.js 15, TypeScript, TailwindCSS, NextAuth.js, Recharts | Dashboard UI scaffolding; frontend role visibility is not authorization |
+| 3 | `neps-portal` | Next.js 16, TypeScript, TailwindCSS, NextAuth.js (v5), Recharts | Dashboard UI + BFF proxy; frontend role visibility is not authorization |
 | 4 | `neps-data-platform` | Python ETL, Alembic, structlog, pandas, SQLAlchemy | REDCap → PostgreSQL ETL pipeline (extract, transform, normalize, load) |
 | 5 | `neps-ml-ai` | FastAPI, scikit-learn, NLTK/spaCy, PKL serialised models | Private stateless NLP inference; no warehouse access; inference disabled pending governance approval |
 | 6 | `neps-docs` | Markdown | Documentation repository (this repo) |
+
+### 2.3 Trust Boundaries (Must Not Be Crossed)
+
+| Boundary | Rule |
+|----------|------|
+| Browser → Backend | The portal is a presentation tier only. It may call the backend, but every request is authorized independently at the backend; hidden controls, role labels, and country selectors are not security controls. |
+| Portal → Backend credential | The backend JWT is attached server-side by the BFF proxy (`/api/backend/[...path]`) and is never exposed to browser code. |
+| Backend → PostgreSQL | The backend is the only application service that reads research data from PostgreSQL. |
+| Backend → ML/AI | The backend is the only path to ML/AI. It authenticates the human, audits intent/completion, and forwards a minimized payload with a separate service token — never the user's JWT. |
+| ML/AI → PostgreSQL | Forbidden. ML/AI has no database credentials, database network, dataset endpoint, host port, or Nginx route. |
+| Data Platform → PostgreSQL | Permitted. The Data Platform is the sole producer of V3.1 scores; it writes validated intake and authoritative scores. |
 
 ---
 
@@ -337,6 +366,81 @@ sequenceDiagram
   suicide/distress predictions, automated referrals, and Discord safeguarding
   notifications are not approved by the baseline handover and must not be
   inferred or enabled here.
+
+### 4.2 ML/AI Request Lifecycle (Frontend → Backend → ML/AI → Backend → Frontend)
+
+A user never talks to ML/AI directly. The backend owns the whole ML request:
+it authenticates the human, checks governance and rate limits, audits before and
+after, calls ML privately with a separate service credential, caches the result,
+and returns only the filtered model output. The diagram below shows the full
+round trip.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant U as User (browser)
+    participant P as Portal UI
+    participant BFF as BFF proxy<br/>/api/backend/[...path]
+    participant B as neps-backend<br/>/api/ml/*
+    participant A as Audit log (PostgreSQL)
+    participant C as Redis cache
+    participant M as neps-ml-ai<br/>/api/nlp/*
+
+    U->>P: Submit text for sentiment/emotion insight
+    P->>BFF: POST /api/backend/api/ml/sentiment (session cookie)
+    BFF->>BFF: Validate session + attach backend JWT (server-side)
+    BFF->>B: POST /api/ml/sentiment (Bearer JWT, X-Request-ID)
+    B->>B: require_research_authorisation + @no_participant_data + rate limit 10/min
+    B->>B: Check ML_AI_ENABLED (else 503, no ML call)
+    B->>A: Audit intent (status=requested, text length only, fail-closed)
+    B->>C: Look up cache ml:{model}:{user}:{sha256(text)}
+    alt Cache hit
+        C-->>B: Cached prediction
+        B->>A: Audit status=completed_cache_hit
+    else Cache miss
+        B->>M: POST /api/nlp/{model}<br/>X-NEPS-Service-Token · X-NEPS-Actor-ID · X-Request-ID
+        M->>M: require_backend_service (hmac.compare_digest)
+        M-->>B: {prediction, scores} (not a clinical decision)
+        B->>A: Audit status=completed (or failed / upstream_error)
+        B->>C: Cache result (ttl 300s)
+    end
+    B-->>BFF: Filtered TextPredictionResponse
+    BFF-->>P: JSON response (no-store)
+    P-->>U: Rendered insight
+```
+
+**Key properties**
+
+- **Only path to ML.** The backend is the sole caller of `neps-ml-ai`. ML/AI has
+  no database access and no public route; it rejects any request lacking the
+  backend's service token.
+- **Governance gate first.** `ML_AI_ENABLED` defaults to `false`. When false the
+  backend returns `503` and never contacts ML.
+- **Audit before/after, fail-closed.** An intent record is written before any ML
+  call; if the audit write fails the request is refused. Completion, cache-hit,
+  failure, and upstream-error outcomes are all recorded. Only text *length* —
+  never raw text — is logged.
+- **No JWT forwarding.** The user's JWT stops at the backend. ML receives a
+  distinct service token plus actor and request IDs for correlation.
+- **Minimised, cached input.** Only the submitted text is sent; results are
+  cached per user for 300s keyed by a SHA-256 of the text.
+- **Not a clinical decision.** Sentiment/emotion output is non-clinical. Clinical
+  thresholds, distress/suicide prediction, automated referrals, and safeguarding
+  alerts are not approved and must not be derived from this output.
+- **Provisional marker.** `/api/ml` is listed in `TRACK_B_PATH_PREFIXES`, so its
+  responses carry `X-NEPS-Track: Track B` and `X-NEPS-Provisional: true`. The BFF
+  forwards these headers so the UI can banner the data as provisional.
+- **Per-request correlation.** The backend injects a trusted `X-Request-ID` on
+  every response and reuses it as the ML actor/request correlation ID in the
+  audit trail.
+
+> **Current wiring status (must be resolved before UI use).** The portal has no
+> ML UI surface yet, and the BFF proxy allow-list currently covers only
+> `api/v31`, `api/portal`, and `health`. A browser-originated call to
+> `/api/backend/api/ml/...` is therefore rejected with `404` until `api/ml` is
+> added to the allow-list in
+> `neps-portal/app/api/backend/[...path]/route.ts`. Endpoint and ML service
+> behaviour are implemented; the portal-to-backend hop is the remaining gap.
 
 ---
 

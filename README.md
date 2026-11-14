@@ -37,8 +37,18 @@ NEPS Digital: Documentation repository. Contains technical references, user guid
 
 - `neps-infrastructure` — Docker Compose, Nginx, Prometheus/Grafana/Alertmanager, Ofelia, PITR scripts
 - `neps-backend` — FastAPI, PostgreSQL, Redis, REDCap sync scheduler
-- `neps-portal` — Next.js 15, NextAuth, role-based dashboards
-- `neps-data-platform` — REDCap ETL extract/transform/load pipeline
-- `neps-ml-ai` — NLP models (sentiment, emotion, risk TBD)
+- `neps-portal` — Next.js 16, NextAuth v5 (Auth.js), BFF proxy (`/api/backend/[...path]`), role-based dashboards
+- `neps-data-platform` — REDCap ETL extract/transform/load pipeline (sole producer of V3.1 scores)
+- `neps-ml-ai` — Private, stateless NLP inference (sentiment, emotion); no database access; disabled pending governance
 
 Source architecture diagrams: `NEPSDigSystem-main/Info Files/` (information flow, deployment, component diagrams).
+
+## Overall System Architecture
+
+The authoritative high-level view of the whole system — the repositories, the
+tiers they occupy, the frontend → backend → data flow, the ML/AI request
+lifecycle, and the trust boundaries that must not be crossed — is in
+**[06-data-flow-and-architecture.md](06-data-flow-and-architecture.md) §2**
+(Overall NEPS Digital System Architecture). Per-service detail lives in the
+`README.md` of each repository (`neps-backend`, `neps-portal`, `neps-ml-ai`,
+`neps-data-platform`).
