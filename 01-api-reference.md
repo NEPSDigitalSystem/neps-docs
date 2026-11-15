@@ -18,13 +18,13 @@ by `RESEARCH_ACCESS_ENABLED` (default `false`).
 |--------|--------|-------|-------|
 | `/` | `main.py` | Public | Service banner (`app_name`, `app_env`) |
 | `/health` | `app.api.health` | Public | Liveness/readiness for Nginx, Prometheus, blackbox |
-| `/api/auth` | `app.api.v1.auth` | Public | Login/session; must work without a token |
+| `/api/auth` | `app.api.v1.auth` | Public | Login/session (`POST /api/auth/login`); must work without a token |
 | `/api/portal` | `app.routers.portal` | Research | Portal (NDS registry, consent, participants) |
 | `/api/redcap` | `app.routers.redcap` | Research | REDCap proxy — reference only |
-| `/api/v31` | `app.routers.v31` | Research | V3.1 baseline reads/exports (Track A) |
+| `/api/v31` | `app.routers.v31` | Research (`@country_scoped`) | V3.1/V3.2 baseline: `baseline`, `participants`, `participants/{id}`, `stats`, `export/records`, `dictionary?version=3.2\|3.1` (Track A) |
 | `/api/v1/sync` | `app.api.v1.redcap_sync` | Research | REDCap sync control |
-| `/api/v1/analytics` | `app.api.v1.analyst_dash` | Research | Analytics — Track B (provisional) |
-| `/api/ml` | `app.routers.ml` | Research | ML/AI proxy — Track B (provisional) |
+| `/api/v1/analytics` | `app.api.v1.analyst_dash` | Research | Analytics (`cohort-overview`, `distress-summary`) — Track B (provisional) |
+| `/api/ml` | `app.routers.ml` | Research | ML/AI proxy (`sentiment`, `emotion`) — Track B (provisional) |
 
 Every response carries an `X-Request-ID`. Paths under `TRACK_B_PATH_PREFIXES`
 (`/api/portal/surveys`, `/api/portal/distress`, `/api/portal/wp6`,
@@ -58,9 +58,9 @@ for the full round trip.
 - Results are cached per user for 300s, keyed by `ml:{model}:{user_id}:{sha256(text)}`.
 - Only text *length* — never raw text — is written to the audit log.
 
-> **Wiring note.** The portal's BFF proxy allow-list currently covers only
-> `api/v31`, `api/portal`, and `health`, and there is no ML UI surface yet. Until
-> `api/ml` is added to that allow-list, browser-originated ML calls return `404`.
+> **Wiring note.** The portal's BFF proxy allow-list covers
+> `api/v31`, `api/portal`, `api/v1`, `api/ml`, and `health` (see `app/api/backend/[...path]/route.ts`).
+> ML calls from authenticated research users forward cleanly through the portal BFF.
 
 ---
 
